@@ -123,6 +123,14 @@ button{cursor:pointer}
 @media(max-width:650px){.status-grid{grid-template-columns:1fr}}
 
 
+
+/* Sincronización simple en nube */
+.cloud-box{margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:12px;background:#0f151d}
+.cloud-status{font-size:10px;color:var(--muted);line-height:1.4;margin-top:7px}
+.cloud-status.ok{color:#a9f5d1}.cloud-status.warn{color:#ffd77f}.cloud-status.bad{color:#ffacb6}
+.review-banner{display:none;margin-bottom:12px;padding:10px 12px;border:1px solid rgba(104,167,255,.45);background:rgba(104,167,255,.08);border-radius:12px;font-size:12px;line-height:1.45}
+.review-banner.show{display:block}
+
 /* Resumen estratégico visible dentro de Futuro de Fundación ILUSTRA */
 .strategy-box{margin:14px 0;border:1px solid #32485f;background:#0f1720;border-radius:14px;padding:14px}
 .strategy-box h4{margin:0 0 10px;font-size:14px}
@@ -170,6 +178,11 @@ button{cursor:pointer}
     <div id="projects"></div>
     <button class="btn ghost small edit-only" style="width:100%" onclick="openProjectModal()">＋ Nuevo proyecto</button>
     <div class="section-title">Herramientas</div>
+    <div class="cloud-box">
+      <button class="btn primary edit-only" style="width:100%" onclick="activateCloudSync()">☁️ Activar / publicar avances</button>
+      <button class="btn" style="width:100%;margin-top:7px" onclick="copyReviewLink()">👁 Copiar enlace de revisión</button>
+      <div id="cloudStatus" class="cloud-status">☁️ Comprobando sincronización…</div>
+    </div>
     <a class="btn" href="#estadoProyectos" style="display:block;text-align:center;text-decoration:none;margin-bottom:9px">📈 Ver avances y actualizar tareas</a><a class="btn" href="#rutaPasoPaso" style="display:block;text-align:center;text-decoration:none;margin-bottom:9px">🧭 Ver tareas paso a paso</a>
     <div class="stack">
       <button class="btn edit-only" onclick="autoPlan()">⚡ Planificar mi día</button>
@@ -188,6 +201,7 @@ button{cursor:pointer}
   </aside>
 
   <main class="main">
+    <div id="reviewModeBanner" class="review-banner">👁 <b>Modo revisión:</b> este enlace muestra siempre el último avance publicado. No permite modificar tareas.</div>
     <section class="panel hero">
       <div class="hero-top">
         <div><h2 id="todayTitle">Tu día de ejecución</h2><p id="productGoal">Producto más cercano a comercialización</p></div>
@@ -326,11 +340,16 @@ button{cursor:pointer}
 <div id="toast" class="toast"></div>
 
 <script>
-const KEY='ilustraFlowCorregidoFuturo7_Nov26';
-const LEGACY_KEYS=['ilustraFlowRutinasVentas7_Nov26','ilustraFlowVentasVacacional7_Nov26','ilustraFlowEstrategia6_Nov26','ilustraFlowFuncional6_Nov26','ilustraFlowMaestra6_Nov26','ilustraFlowV7_Nov26']; // Conserva los avances ya guardados en versiones anteriores
+const KEY='ilustraFlowFinalNube7_Nov26';
+const LEGACY_KEYS=['ilustraFlowCorregidoFuturo7_Nov26','ilustraFlowRutinasVentas7_Nov26','ilustraFlowVentasVacacional7_Nov26','ilustraFlowEstrategia6_Nov26','ilustraFlowFuncional6_Nov26','ilustraFlowMaestra6_Nov26','ilustraFlowV7_Nov26']; // Conserva los avances ya guardados en versiones anteriores
 const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
 const todayISO=()=>new Date().toLocaleDateString('en-CA');
 const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
+const CLOUD_URL='https://jzkznnwsqzvbxxwxztgb.supabase.co/functions/v1/ilustra-flow-state';
+const CLOUD_EDITOR_KEY_STORAGE='ilustraFlowEditorKey';
+const CLOUD_LAST_SYNC_STORAGE='ilustraFlowLastCloudSync';
+const cloudReviewMode=new URLSearchParams(location.search).get('view')==='review';
+let cloudSaveTimer=null;
 const defaultState={
   selectedDate:todayISO(),
   settings:{start:'08:00',end:'18:00',extraEnd:'21:00',focus:45,break:15,lunchStart:'13:00',lunchEnd:'14:00'},
@@ -353,7 +372,7 @@ let readOnly=false;
 let viewMode='day';
 let sharedSnapshot=readSharedState();
 let state=sharedSnapshot?normalizeState(sharedSnapshot):load();
-readOnly=!!sharedSnapshot;
+readOnly=!!sharedSnapshot||cloudReviewMode;
 let selectedProjectId=null;
 let opsDate=todayISO();
 let focusTaskId=null, timerSec=0, timerHandle=null, timerRunning=false, focusSegmentStartedAt=null, focusExtra=false, focusTargetEndAt=null;
@@ -397,7 +416,87 @@ function normalizeState(x){
   return out;
 }
 function load(){try{const current=JSON.parse(localStorage.getItem(KEY));if(current)return normalizeState(current);for(const k of LEGACY_KEYS){const legacy=JSON.parse(localStorage.getItem(k));if(legacy)return normalizeState(legacy)}return normalizeState(defaultState)}catch(e){return normalizeState(defaultState)}}
-function persist(){if(!readOnly)localStorage.setItem(KEY,JSON.stringify(state))}
+function persist(){
+  if(readOnly)return;
+  localStorage.setItem(KEY,JSON.stringify(state));
+  const k=localStorage.getItem(CLOUD_EDITOR_KEY_STORAGE);
+  if(k){
+    clearTimeout(cloudSaveTimer);
+    cloudSaveTimer=setTimeout(()=>saveCloudState(false),700);
+  }
+}
+
+function setCloudStatus(msg,type=''){
+  const el=document.getElementById('cloudStatus');if(!el)return;
+  el.className='cloud-status'+(type?' '+type:'');
+  el.textContent=msg;
+}
+async function fetchCloudState(){
+  const res=await fetch(CLOUD_URL,{method:'GET',cache:'no-store'});
+  if(!res.ok)throw new Error('No se pudo leer el estado en línea');
+  return await res.json();
+}
+async function saveCloudState(interactive=true){
+  if(readOnly)return false;
+  let key=localStorage.getItem(CLOUD_EDITOR_KEY_STORAGE)||'';
+  if(!key&&interactive){
+    key=prompt('Pega la clave de edición de ILUSTRA FLOW. Solo se solicita una vez en este navegador:')||'';
+    if(!key)return false;
+  }
+  if(!key){setCloudStatus('☁️ Guardado local. Activa la nube para compartir avances.','warn');return false}
+  try{
+    setCloudStatus('☁️ Guardando avances…','warn');
+    const res=await fetch(CLOUD_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-editor-key':key},
+      body:JSON.stringify({state})
+    });
+    const data=await res.json().catch(()=>({}));
+    if(res.status===401){
+      localStorage.removeItem(CLOUD_EDITOR_KEY_STORAGE);
+      setCloudStatus('🔑 Clave incorrecta. Vuelve a activar la nube.','bad');
+      if(interactive)alert('La clave de edición no es correcta.');
+      return false;
+    }
+    if(!res.ok||!data.ok)throw new Error(data.error||'No se pudo guardar');
+    localStorage.setItem(CLOUD_EDITOR_KEY_STORAGE,key);
+    localStorage.setItem(CLOUD_LAST_SYNC_STORAGE,data.updated_at||new Date().toISOString());
+    setCloudStatus('☁️ Avances publicados. El enlace de revisión ya está actualizado.','ok');
+    return true;
+  }catch(e){
+    setCloudStatus('⚠️ No se pudo sincronizar. Tus cambios siguen guardados en este navegador.','bad');
+    if(interactive)alert('No se pudo publicar el avance: '+(e.message||e));
+    return false;
+  }
+}
+async function activateCloudSync(){
+  const ok=await saveCloudState(true);
+  if(ok)toast('Sincronización activada. Los siguientes cambios se publicarán automáticamente.');
+}
+async function loadCloudIntoBoard(){
+  try{
+    setCloudStatus('☁️ Cargando último avance…');
+    const data=await fetchCloudState();
+    const remote=data&&data.state&&typeof data.state==='object'?data.state:null;
+    const hasRemote=remote&&Object.keys(remote).length>0;
+    if(hasRemote){
+      state=normalizeState(remote);
+      if(!cloudReviewMode)localStorage.setItem(KEY,JSON.stringify(state));
+      renderAll();
+      setCloudStatus(cloudReviewMode?'👁 Mostrando el último avance publicado.':'☁️ Último avance en línea cargado.','ok');
+    }else{
+      setCloudStatus(cloudReviewMode?'Aún no se ha publicado un avance en línea.':'☁️ Nube lista. Pulsa “Activar / publicar avances” una vez.','warn');
+    }
+  }catch(e){
+    setCloudStatus('⚠️ Sin conexión con la nube. Se muestra la copia local.','bad');
+  }
+}
+async function copyReviewLink(){
+  const url=location.origin+location.pathname+'?view=review';
+  try{await navigator.clipboard.writeText(url);toast('Enlace permanente de revisión copiado')}
+  catch(e){prompt('Copia este enlace permanente de revisión:',url)}
+}
+
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800)}
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 function mins(t){const [h,m]=t.split(':').map(Number);return h*60+m}
@@ -608,9 +707,14 @@ function changeDate(v){state.selectedDate=v;if(!readOnly)persist();renderAll()}
 function b64urlEncode(str){const bytes=new TextEncoder().encode(str);let bin='';for(const b of bytes)bin+=String.fromCharCode(b);return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
 function b64urlDecode(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';const bin=atob(s),bytes=Uint8Array.from(bin,c=>c.charCodeAt(0));return new TextDecoder().decode(bytes)}
 function readSharedState(){try{if(!location.hash.startsWith('#share='))return null;return JSON.parse(b64urlDecode(location.hash.slice(7)))}catch(e){return null}}
-async function sharePlan(){const snapshot=structuredClone(state);const url=location.origin+location.pathname+'#share='+b64urlEncode(JSON.stringify(snapshot));try{await navigator.clipboard.writeText(url);toast('Enlace de solo lectura copiado')}catch(e){prompt('Copia este enlace para compartir tu planificación:',url)}}
+async function sharePlan(){return copyReviewLink()}
 function cloneSharedPlan(){readOnly=false;history.replaceState(null,'',location.pathname);localStorage.setItem(KEY,JSON.stringify(state));renderAll();toast('Copia creada: ahora puedes editarla en este navegador')}
-function applyReadOnlyUI(){document.getElementById('datePicker').disabled=false;document.getElementById('startTimerBtn').disabled=readOnly;document.querySelectorAll('.edit-only').forEach(el=>el.style.display=readOnly?'none':'')}
+function applyReadOnlyUI(){
+  document.getElementById('datePicker').disabled=false;
+  document.getElementById('startTimerBtn').disabled=readOnly;
+  document.querySelectorAll('.edit-only').forEach(el=>el.style.display=readOnly?'none':'');
+  const rb=document.getElementById('reviewModeBanner');if(rb)rb.classList.toggle('show',cloudReviewMode);
+}
 function startBlankBoard(){if(readOnly){cloneSharedPlan()}if(!confirm('¿Crear un tablero nuevo? Tu tablero actual queda en este navegador hasta que lo reemplaces.'))return;state={selectedDate:todayISO(),settings:{start:'08:00',end:'18:00',extraEnd:'21:00',focus:45,break:15,lunchStart:'13:00',lunchEnd:'14:00'},projects:[],tasks:[],plans:{},completedLog:[],progressLog:[],timeLog:[],activeFocus:null,dailyOps:{}};readOnly=false;history.replaceState(null,'',location.pathname);persist();renderAll();toast('Tablero nuevo listo')}
 
 function exportBackup(){const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});download(blob,'ilustra_flow_backup.json')}
@@ -623,7 +727,7 @@ function download(blob,name){const a=document.createElement('a');a.href=URL.crea
 function val(id){return document.getElementById(id).value}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 for(const id of ['taskModal','projectModal','settingsModal'])document.getElementById(id).addEventListener('click',e=>{if(e.target.id===id)closeModal(id)});
-restoreActiveFocus();renderAll();document.addEventListener('visibilitychange',()=>{if(!document.hidden&&timerRunning)updateFocusClock()});window.addEventListener('pageshow',()=>{if(timerRunning)updateFocusClock()});setInterval(()=>renderCalendar(),60000);
+restoreActiveFocus();renderAll();loadCloudIntoBoard();document.addEventListener('visibilitychange',()=>{if(!document.hidden&&timerRunning)updateFocusClock()});window.addEventListener('pageshow',()=>{if(timerRunning)updateFocusClock()});setInterval(()=>renderCalendar(),60000);
 </script>
 </body>
 </html>
