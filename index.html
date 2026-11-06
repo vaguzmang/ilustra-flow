@@ -197,7 +197,7 @@ button{cursor:pointer}
     </div>
     <div class="section-title">Método</div>
     <div class="method"><b>Regla de salida:</b> cada bloque debe terminar con algo visible: documento, commit, prueba, decisión, video o venta.<br><br><b>Regla de foco:</b> distribuir el trabajo entre los proyectos activos, priorizando plazos y entregables sin cambiar de actividad cada pocos minutos.</div>
-    <div class="footer-note">Los datos se guardan en este navegador, no se sincronizan entre dispositivos. El foco sigue contando mediante la hora real al cambiar de pestaña o reabrir el tablero; se registra hasta que termine el bloque. Usa Copia de seguridad para conservar tus avances.</div>
+    <div class="footer-note">Los datos se guardan localmente y, al activar la nube, también se publican para el enlace de revisión. El foco sigue contando mediante la hora real al cambiar de pestaña o reabrir el tablero; se registra hasta que termine el bloque. Usa Copia de seguridad para conservar tus avances.</div>
   </aside>
 
   <main class="main">
@@ -340,8 +340,8 @@ button{cursor:pointer}
 <div id="toast" class="toast"></div>
 
 <script>
-const KEY='ilustraFlowFinalNube7_Nov26';
-const LEGACY_KEYS=['ilustraFlowCorregidoFuturo7_Nov26','ilustraFlowRutinasVentas7_Nov26','ilustraFlowVentasVacacional7_Nov26','ilustraFlowEstrategia6_Nov26','ilustraFlowFuncional6_Nov26','ilustraFlowMaestra6_Nov26','ilustraFlowV7_Nov26']; // Conserva los avances ya guardados en versiones anteriores
+const KEY='ilustraFlowLmsCloudFix7_Nov26';
+const LEGACY_KEYS=['ilustraFlowFinalNube7_Nov26','ilustraFlowCorregidoFuturo7_Nov26','ilustraFlowRutinasVentas7_Nov26','ilustraFlowVentasVacacional7_Nov26','ilustraFlowEstrategia6_Nov26','ilustraFlowFuncional6_Nov26','ilustraFlowMaestra6_Nov26','ilustraFlowV7_Nov26']; // Conserva los avances ya guardados en versiones anteriores
 const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
 const todayISO=()=>new Date().toLocaleDateString('en-CA');
 const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
@@ -384,7 +384,7 @@ function normalizeState(x){
   if(!out.settings.extraEnd)out.settings.extraEnd='21:00';
 
   // Mantener avances y personalizaciones de los proyectos no revisados.
-  const refreshed=new Set(['p-estrategia','p-concurso','p-oracion','p-vacacional','p-ventas-vacacional']);
+  const refreshed=new Set(['p-influencer','p-estrategia','p-concurso','p-oracion','p-vacacional','p-ventas-vacacional']);
   const incomingProjects=Array.isArray(incoming.projects)?incoming.projects:[];
   const canonicalIds=new Set(base.projects.map(p=>p.id));
   out.projects=base.projects.map(bp=>{
@@ -394,7 +394,7 @@ function normalizeState(x){
   });
   for(const p of incomingProjects){if(!canonicalIds.has(p.id))out.projects.push(p);}
 
-  // En Futuro de ILUSTRA, Concurso, Grupo de oración, Vacacional y Ventas Vacacional manda la estructura actualizada.
+  // En Influencer IA, Futuro de ILUSTRA, Concurso, Grupo de oración, Vacacional y Ventas Vacacional manda la estructura actualizada.
   const incomingTasks=Array.isArray(incoming.tasks)?incoming.tasks:[];
   const baseNonRef=base.tasks.filter(t=>!refreshed.has(t.projectId));
   const incomingById=new Map(incomingTasks.filter(t=>!refreshed.has(t.projectId)).map(t=>[t.id,t]));
@@ -461,7 +461,7 @@ async function saveCloudState(interactive=true){
     if(!res.ok||!data.ok)throw new Error(data.error||'No se pudo guardar');
     localStorage.setItem(CLOUD_EDITOR_KEY_STORAGE,key);
     localStorage.setItem(CLOUD_LAST_SYNC_STORAGE,data.updated_at||new Date().toISOString());
-    setCloudStatus('☁️ Avances publicados. El enlace de revisión ya está actualizado.','ok');
+    setCloudStatus('☁️ Avance guardado en la nube. El enlace de revisión ya está actualizado.','ok');
     return true;
   }catch(e){
     setCloudStatus('⚠️ No se pudo sincronizar. Tus cambios siguen guardados en este navegador.','bad');
@@ -478,14 +478,14 @@ async function loadCloudIntoBoard(){
     setCloudStatus('☁️ Cargando último avance…');
     const data=await fetchCloudState();
     const remote=data&&data.state&&typeof data.state==='object'?data.state:null;
-    const hasRemote=remote&&Object.keys(remote).length>0;
+    const hasRemote=remote&&Array.isArray(remote.projects)&&Array.isArray(remote.tasks);
     if(hasRemote){
       state=normalizeState(remote);
       if(!cloudReviewMode)localStorage.setItem(KEY,JSON.stringify(state));
       renderAll();
       setCloudStatus(cloudReviewMode?'👁 Mostrando el último avance publicado.':'☁️ Último avance en línea cargado.','ok');
     }else{
-      setCloudStatus(cloudReviewMode?'Aún no se ha publicado un avance en línea.':'☁️ Nube lista. Pulsa “Activar / publicar avances” una vez.','warn');
+      setCloudStatus(cloudReviewMode?'Aún no se ha publicado un tablero completo en línea.':'☁️ Nube lista. Pulsa “Activar / publicar avances” para publicar este tablero.','warn');
     }
   }catch(e){
     setCloudStatus('⚠️ Sin conexión con la nube. Se muestra la copia local.','bad');
@@ -621,7 +621,7 @@ function renderRoadmap(){
  if(done.length)steps+=`<details class="rd-fold"><summary>✅ Ver las ${done.length} ${lms?'tablas':'tareas'} completadas</summary><div class="rd-steps">${done.map((t,i)=>renderStepLine(t,ts.indexOf(t)+1)).join('')}</div></details>`;
  const strategic=projectStrategicDetail[p.id]||'';
  const modeNote=readOnly?'<div class="edit-mode-note">🔒 Estás viendo una copia de solo lectura. Para marcar tareas debes abrir el enlace principal sin <b>#share=</b> al final.</div>':'<div class="edit-mode-note">✏️ Modo edición activo: puedes usar <b>↗ Avance</b>, <b>✓ Marcar hecha</b>, <b>▶ Foco</b> o agregar nuevas tareas.</div>';
- root.innerHTML=`<div class="rd-head"><h3>${esc(p.name)}</h3><div class="mini-btns"><span class="flow-pill">${done.length}/${ts.length} pasos confirmados</span>${readOnly?'':`<button class="btn primary small" onclick="openTaskForProject('${p.id}')">＋ Agregar tarea a este proyecto</button>`}</div></div>${modeNote}<p class="rd-desc">${esc(desc)}</p><div class="rd-stats"><b>${pctPrecise(p)}%</b><span>${lms?'55 de 95 tablas al inicio · 40 pendientes':'Pasos pendientes de validación'}</span></div><div class="rd-bar"><i style="width:${pctPrecise(p)}%"></i></div>${strategic}${steps}`;
+ root.innerHTML=`<div class="rd-head"><h3>${esc(p.name)}</h3><div class="mini-btns"><span class="flow-pill">${done.length}/${ts.length} pasos confirmados</span>${readOnly?'':`<button class="btn primary small" onclick="openTaskForProject('${p.id}')">＋ Agregar tarea a este proyecto</button>`}</div></div>${modeNote}<p class="rd-desc">${esc(desc)}</p><div class="rd-stats"><b>${pctPrecise(p)}%</b><span>${lms?`${done.length} de ${ts.length} tablas terminadas · ${pending.length} pendientes`:'Pasos pendientes de validación'}</span></div><div class="rd-bar"><i style="width:${pctPrecise(p)}%"></i></div>${strategic}${steps}`;
 }
 function renderWeeklyGantt(){
  const root=document.getElementById('weeklyGantt');if(!root)return;
@@ -686,9 +686,9 @@ function autoPlan(){if(readOnly){toast('Modo lectura: usa “Usar como plantilla
 function autoPlanWeek(){if(readOnly)return;const startDate=weekStartISO(state.selectedDate),all=state.tasks.filter(t=>t.status!=='done'&&t.status!=='blocked'&&t.light!=='red'&&remainingMinutes(t)>0).sort((a,b)=>score(b)-score(a));const rem=Object.fromEntries(all.map(t=>[t.id,remainingMinutes(t)]));const today=todayISO();for(let di=0;di<7;di++){const d=new Date(startDate);d.setDate(startDate.getDate()+di);const iso=isoFromDate(d);if(iso<today)continue;const s=state.settings,start=mins(s.start),end=mins(s.end),ls=mins(s.lunchStart),le=mins(s.lunchEnd);let cursor=iso===today?Math.max(start,ceilTo(nowMinutes(),5)):start,plan=[];if(cursor>=end){state.plans[iso]=[];continue}const available=all.filter(t=>rem[t.id]>0);let ordered=[];let queues=state.projects.map(p=>available.filter(t=>t.projectId===p.id));while(queues.some(q=>q.length)){for(const q of queues){if(q.length)ordered.push(q.shift())}}for(const t of ordered){while(rem[t.id]>0&&cursor<end){if(cursor>=ls&&cursor<le){plan.push({id:uid(),type:'break',label:'Almuerzo',start:cursor,end:le});cursor=le;continue}let seg=Math.min(rem[t.id],s.focus);if(cursor<ls&&cursor+seg>ls)seg=ls-cursor;if(cursor+seg>end)seg=end-cursor;if(seg<15)break;plan.push({id:uid(),type:'task',taskId:t.id,start:cursor,end:cursor+seg});cursor+=seg;rem[t.id]-=seg;if(rem[t.id]>0||available.indexOf(t)<available.length-1){if(cursor>=ls&&cursor<le){plan.push({id:uid(),type:'break',label:'Almuerzo',start:cursor,end:le});cursor=le}else if(cursor+s.break<=end){plan.push({id:uid(),type:'break',label:'Recuperación',start:cursor,end:cursor+s.break});cursor+=s.break}}}}state.plans[iso]=plan}persist();viewMode='week';renderAll();toast('Semana planificada sin asignar horas al pasado')}
 function clearPlan(){if(readOnly){toast('Modo lectura: usa “Usar como plantilla” para editar');return;}if(!confirm('¿Rehacer la agenda de este día?'))return;state.plans[state.selectedDate]=[];persist();renderAll()}
 function dropBlock(e,targetHour){if(readOnly){toast('Modo lectura: usa “Usar como plantilla” para editar');return;}const id=e.dataTransfer.getData('text/plain'),plan=state.plans[state.selectedDate]||[],b=plan.find(x=>x.id===id);if(!b)return;const rect=e.currentTarget.getBoundingClientRect();const offset=(e.clientY-rect.top)>rect.height/2?30:0;const dur=b.end-b.start;b.start=targetHour+offset;b.end=b.start+dur;plan.sort((a,b)=>a.start-b.start);persist();renderAll();toast('Bloque movido')}
-function registerProgress(id){if(readOnly)return;const t=task(id);if(!t)return;const v=prompt(`Avance actual de "${t.name}" (0–100):`,String(t.progress||0));if(v===null)return;const pct=clamp(parseInt(v,10)||0,0,100);const note=prompt('¿Qué quedó hecho en este avance? (opcional)','')??'';t.progress=pct;t.status=pct>=100?'done':(pct>0?'doing':'todo');state.progressLog.push({taskId:id,date:todayISO(),at:new Date().toISOString(),progress:pct,note});if(pct>=100&&!state.completedLog.some(x=>x.taskId===id&&x.date===todayISO()))state.completedLog.push({taskId:id,date:todayISO(),at:new Date().toISOString()});persist();renderAll();toast(`Avance registrado: ${pct}%`)}
-function markDone(id){if(readOnly){toast('Modo lectura: usa “Usar como plantilla” para editar');return;}const t=task(id);if(!t)return;t.status='done';t.progress=100;if(!state.completedLog.some(x=>x.taskId===id&&x.date===todayISO()))state.completedLog.push({taskId:id,date:todayISO(),at:new Date().toISOString()});state.progressLog.push({taskId:id,date:todayISO(),at:new Date().toISOString(),progress:100,note:'Tarea terminada'});syncProjectProgress();persist();renderAll();toast('Tarea marcada como hecha')}
-function reopenTask(id){if(readOnly)return;const t=task(id);if(!t)return;t.status='todo';t.progress=0;t.light=t.light==='red'?'yellow':t.light;state.progressLog.push({taskId:id,date:todayISO(),at:new Date().toISOString(),progress:0,note:'Tarea reabierta'});syncProjectProgress();persist();renderAll();toast('Tarea reabierta')}
+async function registerProgress(id){if(readOnly)return;const t=task(id);if(!t)return;const v=prompt(`Avance actual de "${t.name}" (0–100):`,String(t.progress||0));if(v===null)return;const pct=clamp(parseInt(v,10)||0,0,100);const note=prompt('¿Qué quedó hecho en este avance? (opcional)','')??'';t.progress=pct;t.status=pct>=100?'done':(pct>0?'doing':'todo');state.progressLog.push({taskId:id,date:todayISO(),at:new Date().toISOString(),progress:pct,note});if(pct>=100&&!state.completedLog.some(x=>x.taskId===id&&x.date===todayISO()))state.completedLog.push({taskId:id,date:todayISO(),at:new Date().toISOString()});syncProjectProgress();persist();renderAll();toast(`Avance registrado: ${pct}%`);if(localStorage.getItem(CLOUD_EDITOR_KEY_STORAGE))await saveCloudState(false)}
+async function markDone(id){if(readOnly){toast('Modo lectura: usa “Usar como plantilla” para editar');return;}const t=task(id);if(!t)return;t.status='done';t.progress=100;if(!state.completedLog.some(x=>x.taskId===id&&x.date===todayISO()))state.completedLog.push({taskId:id,date:todayISO(),at:new Date().toISOString()});state.progressLog.push({taskId:id,date:todayISO(),at:new Date().toISOString(),progress:100,note:'Tarea terminada'});syncProjectProgress();persist();renderAll();toast('Tarea marcada como hecha');if(localStorage.getItem(CLOUD_EDITOR_KEY_STORAGE))await saveCloudState(false)}
+async function reopenTask(id){if(readOnly)return;const t=task(id);if(!t)return;t.status='todo';t.progress=0;t.light=t.light==='red'?'yellow':t.light;state.progressLog.push({taskId:id,date:todayISO(),at:new Date().toISOString(),progress:0,note:'Tarea reabierta'});syncProjectProgress();persist();renderAll();toast('Tarea reabierta');if(localStorage.getItem(CLOUD_EDITOR_KEY_STORAGE))await saveCloudState(false)}
 function blockTask(id){if(readOnly){toast('Modo lectura: usa “Usar como plantilla” para editar');return;}const t=task(id);if(!t)return;const r=prompt('¿Qué está bloqueando esta tarea?',t.blockReason||'');if(r===null)return;t.status='blocked';t.light='red';t.blockReason=r;persist();renderAll();toast('Tarea bloqueada: deja de consumir tiempo hasta desbloquearse')}
 function selectFocus(id){if(timerRunning)pauseAndLogFocus();focusTaskId=id;focusExtra=false;const t=task(id);timerSec=t?Math.min(Math.max(remainingMinutes(t),15),state.settings.focus)*60:0;timerRunning=false;focusSegmentStartedAt=null;focusTargetEndAt=null;state.activeFocus=null;if(timerHandle)clearInterval(timerHandle);persist();renderFocus();document.getElementById('startTimerBtn').textContent='▶ Iniciar'}
 function startExtraFocus(id){selectFocus(id);focusExtra=true;renderFocus();toggleTimer();toast('Foco extra iniciado. Este tiempo quedará registrado.')}
