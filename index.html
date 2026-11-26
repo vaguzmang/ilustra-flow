@@ -383,16 +383,16 @@ function normalizeState(x){
   out.settings=Object.assign({},base.settings,incoming.settings||{});
   if(!out.settings.extraEnd)out.settings.extraEnd='21:00';
   // Aplicar una sola vez los cambios de estructura; después respetar los avances futuros.
-  const revision='ilustra-flow-2026-11-23-prompts-v4';
+  const revision='ilustra-flow-2026-11-25-unificar-curso-diciembre-v5';
   const firstMigration=incoming.flowRevision!==revision;
   // Incorporar el proyecto nuevo sin reabrir ni sobrescribir otros proyectos ya gestionados.
   const refreshed=firstMigration
-    ? new Set(['p-ingenieria-prompts','p-oracion'])
+    ? new Set(['p-oracion'])
     : new Set(['p-oracion']);
-  const incomingProjects=Array.isArray(incoming.projects)?incoming.projects:[];
+  const incomingProjects=(Array.isArray(incoming.projects)?incoming.projects:[]).filter(p=>p.id!=='p-ingenieria-prompts');
   const canonicalIds=new Set(base.projects.map(p=>p.id));
   const retiredAliases=new Set(incomingProjects.filter(p=>!canonicalIds.has(p.id)&&/^(evento vacacional|vacacional 2minds|ventas vacacional)/i.test(p.name||'')).map(p=>p.id));
-  out.projects=base.projects.map(bp=>{
+  out.projects=base.projects.filter(p=>p.id!=='p-ingenieria-prompts').map(bp=>{
     const old=incomingProjects.find(p=>p.id===bp.id);
     if(!old||refreshed.has(bp.id))return structuredClone(bp);
     return Object.assign(structuredClone(bp),old);
@@ -401,13 +401,13 @@ function normalizeState(x){
     if(p.id==='p-oracion'||retiredAliases.has(p.id)||/grupo de oraci[oó]n/i.test(p.name||''))continue;
     if(!canonicalIds.has(p.id))out.projects.push(p);
   }
-  const incomingTasks=Array.isArray(incoming.tasks)?incoming.tasks:[];
-  const preserved=base.tasks.filter(t=>!refreshed.has(t.projectId));
+  const incomingTasks=(Array.isArray(incoming.tasks)?incoming.tasks:[]).filter(t=>t.projectId!=='p-ingenieria-prompts');
+  const preserved=base.tasks.filter(t=>t.projectId!=='p-ingenieria-prompts'&&!refreshed.has(t.projectId));
   const incomingById=new Map(incomingTasks.filter(t=>!refreshed.has(t.projectId)).map(t=>[t.id,t]));
   const mergedPreserved=preserved.map(bt=>incomingById.has(bt.id)?Object.assign(structuredClone(bt),incomingById.get(bt.id)):structuredClone(bt));
   const baseIds=new Set(preserved.map(t=>t.id));
   const extras=incomingTasks.filter(t=>!refreshed.has(t.projectId)&&!baseIds.has(t.id)&&!retiredAliases.has(t.projectId));
-  const changed=base.tasks.filter(t=>refreshed.has(t.projectId)).map(t=>structuredClone(t));
+  const changed=base.tasks.filter(t=>t.projectId!=='p-ingenieria-prompts'&&refreshed.has(t.projectId)).map(t=>structuredClone(t));
   out.tasks=[...mergedPreserved,...extras,...changed].filter(t=>t.projectId!=='p-oracion')
     .map(t=>({...t,progress:Number.isFinite(+t.progress)?clamp(+t.progress,0,100):(t.status==='done'?100:0)}));
   out.flowRevision=revision;
